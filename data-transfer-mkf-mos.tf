@@ -1,23 +1,23 @@
 # Infrastructure for the Yandex Cloud Managed Service for Apache Kafka®, Managed Service for OpenSearch, and Data Transfer
 #
-# RU: https://cloud.yandex.ru/docs/data-transfer/tutorials/mkf-to-mos
-# EN: https://cloud.yandex.com/en/docs/data-transfer/tutorials/mkf-to-mos
+# RU: https://yandex.cloud/ru/docs/data-transfer/tutorials/mkf-to-mos
+# EN: https://yandex.cloud/en/docs/data-transfer/tutorials/mkf-to-mos
 #
 # Specify the following settings:
+
 locals {
   # Source Managed Service for Apache Kafka® cluster settings:
-  kf_version       = "" # Set a desired version of Apache Kafka®. For available versions, see the documentation main page: https://cloud.yandex.com/en/docs/managed-kafka/
+  kf_version       = "" # Set a desired version of Apache Kafka®. For available versions, see the documentation main page: https://yandex.cloud/en/docs/managed-kafka/
   kf_user_password = "" # Set a password for the Apache Kafka® user
 
   # Source Managed Service for OpenSearch cluster settings:
-  os_version       = "" # Set a desired version of OpenSearch. For available versions, see the documentation main page: https://cloud.yandex.com/en/docs/managed-opensearch/
+  os_version       = "" # Set a desired version of OpenSearch. For available versions, see the documentation main page: https://yandex.cloud/en/docs/managed-opensearch/
   os_user_password = "" # Set a password for the OpenSearch user
 
   # Specify these settings ONLY AFTER the clusters are created. Then run "terraform apply" command again.
-  # You should set up endpoints using the GUI to obtain their IDs
-  source_endpoint_id = "" # Set the source endpoint ID
-  target_endpoint_id = "" # Set the target endpoint ID
-  transfer_enabled   = 0  # Set to 1 to enable Transfer
+  # You should set up the OpenSearch target endpoint using the GUI to obtain its ID.
+  target_endpoint_id = "" # Set the OpenSearch target endpoint ID
+  transfer_enabled   = 0  # Set to 1 to enable the transfer
 
   # The following settings are predefined. Change them only if necessary.
   network_name          = "network"            # Name of the network
@@ -185,11 +185,80 @@ resource "yandex_mdb_opensearch_cluster" "opensearch_cluster" {
 
 # Data Transfer infrastructure
 
+resource "yandex_datatransfer_endpoint" "kf-source" {
+  description = "Source endpoint for the Managed Service for Apache Kafka® cluster"
+  count       = local.transfer_enabled
+  name        = "kf-source"
+  settings {
+    kafka_source {
+      connection {
+        cluster_id = yandex_mdb_kafka_cluster.kafka-cluster.id
+      }
+      auth {
+        sasl {
+          user = yandex_mdb_kafka_user.mkf-user.name
+          password {
+            raw = local.kf_user_password
+          }
+        }
+      }
+      topic_names = [
+        yandex_mdb_kafka_topic.sensors.name
+      ]
+      parser {
+        json_parser {
+          data_schema {
+            fields {
+              fields {
+                name = "device_id"
+                type = "UTF8"
+                key  = true
+              }
+              fields {
+                name = "datetime"
+                type = "UTF8"
+              }
+              fields {
+                name = "latitude"
+                type = "DOUBLE"
+              }
+              fields {
+                name = "longitude"
+                type = "DOUBLE"
+              }
+              fields {
+                name = "altitude"
+                type = "DOUBLE"
+              }
+              fields {
+                name = "speed"
+                type = "DOUBLE"
+              }
+              fields {
+                name = "battery_voltage"
+                type = "DOUBLE"
+              }
+              fields {
+                name = "cabin_temperature"
+                type = "UINT16"
+              }
+              fields {
+                name = "fuel_level"
+                type = "UINT16"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 resource "yandex_datatransfer_transfer" "mkf-mos-transfer" {
   count       = local.transfer_enabled
-  description = "Transfer from the Managed Service for Apache Kafka® to the Managed Service for OpenSearch"
+  description = "Transfer from Managed Service for Apache Kafka® to Managed Service for OpenSearch"
   name        = "transfer-from-mkf-to-mos"
-  source_id   = local.source_endpoint_id
+  source_id   = yandex_datatransfer_endpoint.kf-source[count.index].id
   target_id   = local.target_endpoint_id
-  type        = "INCREMENT_ONLY" # Replication data
+  type        = "INCREMENT_ONLY" # Data replication
 }
